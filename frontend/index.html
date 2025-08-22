@@ -1,13 +1,58 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
+    <!-- Required meta -->
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Branding -->
+    <title>Apply4Me</title>
+    <meta name="application-name" content="Apply4Me" />
+    <meta
+      name="description"
+      content="Apply4Me — fast CV submission service by alunix."
+    />
+    <meta name="theme-color" content="#6d28d9" />
+    <meta name="color-scheme" content="light only" />
+
+    <!-- Icons & PWA -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Social preview (optional but nice) -->
+    <meta property="og:title" content="Apply4Me" />
+    <meta
+      property="og:description"
+      content="Fast CV submission service by alunix."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="/" />
+    <!-- If you have a social image later, put it in /public and set the path here -->
+    <!-- <meta property="og:image" content="/social-card.png" /> -->
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Apply4Me" />
+    <meta
+      name="twitter:description"
+      content="Fast CV submission service by alunix."
+    />
+    <!-- <meta name="twitter:image" content="/social-card.png" /> -->
+
+    <!-- Favicons note:
+         Put these files in frontend/public/ :
+         - favicon.svg
+         - favicon-32x32.png
+         - apple-touch-icon.png
+         - android-chrome-192x192.png
+         - android-chrome-512x512.png
+         - site.webmanifest
+    -->
   </head>
   <body>
     <div id="root"></div>
+    <!-- Vite entry for React -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
