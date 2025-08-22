@@ -1,0 +1,24 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Submission {
+  id                  Int       @id @default(autoincrement())
+  name                String
+  email               String
+  mobile              String?
+  message             String?
+  resumeData          Bytes?
+  resumeContentType   String?
+  resumeOriginalName  String?
+  resumeSize          Int?
+  createdAt           DateTime  @default(now())
+
+  @@index([email], map: "idx_submission_email")
+  @@index([createdAt], map: "idx_submission_created_at")
+}
