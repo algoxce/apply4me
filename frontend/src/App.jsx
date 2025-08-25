@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import Hero from "./components/Hero.jsx";
 import Layout from "./components/Layout.jsx";
+import HomePricing from "./components/HomePricing.jsx";
 
 export default function App() {
   return (
