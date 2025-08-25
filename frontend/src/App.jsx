@@ -1,257 +1,273 @@
-import { useState } from "react";
-import { Typewriter } from "react-simple-typewriter";
+// frontend/src/App.jsx
+import React, { useState } from "react";
+import Hero from "./components/Hero.jsx";
 
 export default function App() {
+  return (
+    <>
+      <Hero />
+      <Features />
+      <ApplyForm />
+      <Footer />
+    </>
+  );
+}
+
+function Features() {
+  const wrap = {
+    maxWidth: 1100,
+    margin: "32px auto",
+    padding: "0 16px",
+    fontFamily: "system-ui,Segoe UI,Arial",
+  };
+  const card = {
+    border: "1px solid #e5e7eb",
+    borderRadius: 16,
+    padding: 18,
+    background: "#fff",
+    boxShadow: "0 2px 8px rgba(0,0,0,.04)",
+  };
+  const grid = {
+    display: "grid",
+    gap: 16,
+    gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))",
+  };
+  const h3 = { margin: "6px 0", fontSize: 18 };
+
+  return (
+    <section style={wrap}>
+      <h2 style={{ fontSize: 28, margin: "6px 0 14px" }}>How Apply4Me works</h2>
+      <div style={grid}>
+        <div style={card}>
+          <h3 style={h3}>1) Fill once</h3>
+          <p style={{ color: "#475569" }}>
+            Add your details and resume one time. We securely store them for
+            future submissions.
+          </p>
+        </div>
+        <div style={card}>
+          <h3 style={h3}>2) One-click apply</h3>
+          <p style={{ color: "#475569" }}>
+            We auto-complete job forms for you. Each submission uses 1 credit.
+          </p>
+        </div>
+        <div style={card}>
+          <h3 style={h3}>3) Scale up with Pro</h3>
+          <p style={{ color: "#475569" }}>
+            Need volume? Upgrade to Pro for monthly credits and priority.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ApplyForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
   const [message, setMessage] = useState("");
-  const [resumeFile, setResumeFile] = useState(null);
+  const [resume, setResume] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState("");
 
-  const handleSubmit = async (e) => {
+  const wrap = {
+    maxWidth: 900,
+    margin: "28px auto 48px",
+    padding: "0 16px",
+    fontFamily: "system-ui,Segoe UI,Arial",
+  };
+  const input = {
+    width: "100%",
+    padding: 12,
+    border: "1px solid #e5e7eb",
+    borderRadius: 10,
+    outline: "none",
+  };
+
+  async function onSubmit(e) {
     e.preventDefault();
-    setLoading(true);
-    setSuccess("");
-
-    const formData = new FormData();
-    formData.append("name", name);
-    formData.append("email", email);
-    formData.append("mobile", mobile);
-    formData.append("message", message);
-    if (resumeFile) {
-      formData.append("resume", resumeFile);
-    }
-
+    if (!name || !email) return alert("Please fill your name and email.");
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/submit`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      setLoading(true);
+      const fd = new FormData();
+      fd.append("name", name);
+      fd.append("email", email);
+      fd.append("mobile", mobile);
+      fd.append("message", message);
+      if (resume) fd.append("resume", resume);
 
-      if (response.ok) {
-        setSuccess("✅ Submitted successfully!");
-        setName("");
-        setEmail("");
-        setMobile("");
-        setMessage("");
-        setResumeFile(null);
-      } else {
-        setSuccess("❌ Submission failed. Try again.");
+      // Your Vercel rewrite proxies /api → Render backend
+      const res = await fetch("/api/submit", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 402 || data?.upgrade) {
+        if (
+          confirm(
+            "You’re out of credits. Would you like to view pricing and add more credits now?"
+          )
+        ) {
+          location.href = "/pricing";
+        }
+        return;
       }
-    } catch (error) {
-      console.error("Error submitting form:", error);
-      setSuccess("❌ Error submitting form.");
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+      alert("Submitted ✅ — 1 credit used.");
+      setMessage("");
+      setResume(null);
+      // keep name/email/mobile for next time
+    } catch (err) {
+      console.error(err);
+      alert(`Submission failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
-    <div className="bg-gradient-to-br from-black via-[#1f1b2e] to-[#5b21b6] min-h-screen text-white font-sans">
-      {/* Navbar */}
-      <header className="w-full px-6 py-4 flex justify-between items-center bg-white/5 backdrop-blur-md border-b border-white/10 fixed top-0 z-50">
-        <h1 className="text-xl font-bold text-purple-400">Apply4Me</h1>
-        <nav className="space-x-6 hidden sm:block">
-          {["about", "services", "contact"].map((link) => (
-            <a
-              key={link}
-              href={`#${link}`}
-              className="text-white hover:text-purple-400 transition duration-300"
-            >
-              {link.charAt(0).toUpperCase() + link.slice(1)}
-            </a>
-          ))}
-        </nav>
-      </header>
+    <section id="apply" style={wrap}>
+      <h2 style={{ fontSize: 28, margin: "0 0 10px" }}>Try it free</h2>
+      <p style={{ color: "#475569", margin: "0 0 16px" }}>
+        You start with <b>5 free credits</b>. Each submission uses 1 credit.
+      </p>
 
-      {/* Hero Section */}
-      <section className="pt-32 h-screen flex flex-col items-center justify-center text-center px-4">
-        <h1 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-6">
-          Career Boost With{" "}
-          <span className="text-purple-400 slow-blink ml-1">
-            <Typewriter
-              words={[
-                "Career-Defining Resumes",
-                "Strategic Job Applications",
-                "Elegant CVs That Win Interviews",
-                "Professional Portfolios That Impress",
-                "Tailored Career Branding",
-              ]}
-              loop={Infinity}
-              cursor
-              cursorStyle="|"
-              typeSpeed={40}
-              deleteSpeed={30}
-              delaySpeed={1500}
-            />
+      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
+        <div
+          style={{
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+          }}
+        >
+          <input
+            style={input}
+            placeholder="Full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            style={input}
+            placeholder="Email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            type="email"
+          />
+          <input
+            style={input}
+            placeholder="Mobile (optional)"
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+          />
+        </div>
+
+        <textarea
+          style={{ ...input, minHeight: 100, resize: "vertical" }}
+          placeholder="Optional message or role preferences"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            padding: 12,
+            border: "1px dashed #cbd5e1",
+            borderRadius: 12,
+            color: "#334155",
+            background: "#f8fafc",
+          }}
+        >
+          <input
+            type="file"
+            accept=".pdf,.doc,.docx"
+            onChange={(e) => setResume(e.target.files?.[0] ?? null)}
+            style={{ display: "none" }}
+          />
+          <span>
+            {resume
+              ? `Attached: ${resume.name}`
+              : "Attach resume (PDF/DOC/DOCX)"}
           </span>
-        </h1>
-        <p className="text-lg sm:text-xl text-gray-300 max-w-xl mb-8">
-          And apply for you — professionally, smartly, and effectively. Let us
-          save your time.
-        </p>
-        <a href="#contact">
-          <button className="bg-purple-600 text-white font-semibold px-8 py-3 rounded-full shadow-md transition-all duration-500 ease-in-out transform hover:scale-105 hover:shadow-purple-500/50 hover:bg-purple-500">
-            Get Started
+        </label>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button
+            disabled={loading}
+            type="submit"
+            style={{
+              padding: "12px 16px",
+              borderRadius: 12,
+              border: "none",
+              background: "#111827",
+              color: "#fff",
+              fontWeight: 800,
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+          >
+            {loading ? "Submitting…" : "Submit application"}
           </button>
-        </a>
-      </section>
 
-      {/* Services */}
-      <section id="services" className="py-20 bg-[#0d0b16] px-6">
-        <div className="max-w-6xl mx-auto text-center">
-          <h2 className="text-4xl font-bold mb-12 text-purple-400">
-            Our Services
-          </h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: "📝",
-                title: "Resume Writing",
-                text: "We craft ATS-optimized resumes tailored for your industry.",
-              },
-              {
-                icon: "👔",
-                title: "Job Applications",
-                text: "We apply to jobs for you smartly using top job platforms.",
-              },
-              {
-                icon: "📩",
-                title: "Instant Delivery",
-                text: "Receive your resume within hours — ready to apply.",
-              },
-            ].map((service, i) => (
-              <div
-                key={i}
-                className="bg-[#1f1b2e] p-8 rounded-xl shadow-md transition-all duration-500 ease-in-out transform hover:scale-105 hover:bg-purple-700/20 hover:shadow-purple-500/30"
-              >
-                <span className="text-4xl">{service.icon}</span>
-                <h3 className="text-xl font-semibold mt-4 mb-2">
-                  {service.title}
-                </h3>
-                <p className="text-gray-300">{service.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* About */}
-      <section
-        id="about"
-        className="py-20 bg-[#15121e] px-6 flex justify-center"
-      >
-        <div className="bg-white/5 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl max-w-3xl p-10 text-center transition duration-500 hover:shadow-purple-500/30 hover:scale-[1.02]">
-          <h2 className="text-4xl font-bold mb-6 text-purple-400">
-            Why Choose Us?
-          </h2>
-          <p className="text-gray-300 text-lg leading-relaxed">
-            At <span className="text-purple-400 font-semibold">Apply4Me</span>,
-            we don't just build resumes — we help shape careers. Our team blends
-            professional writing expertise with market insights to craft modern,
-            effective CVs. We also apply for jobs on your behalf to save your
-            time and deliver results.
-          </p>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="py-20 bg-gradient-to-r from-[#1f1b2e] via-[#2a223d] to-[#3e2c5a] text-white px-6 flex justify-center">
-        <div className="backdrop-blur-md bg-white/5 border border-white/10 shadow-xl rounded-2xl max-w-3xl p-10 text-center transition-all duration-500 hover:shadow-purple-500/30 hover:scale-[1.02]">
-          <h2 className="text-4xl font-bold mb-6">
-            Ready to <span className="text-purple-400">Get Hired</span>?
-          </h2>
-          <p className="text-gray-300 mb-8 text-lg">
-            Let’s build your professional brand, craft a powerful resume, and
-            apply for jobs that match your goals.
-          </p>
-          <a href="#contact">
-            <button className="bg-purple-600 px-8 py-3 rounded-full font-semibold text-white hover:bg-purple-500 transition duration-300">
-              Let's Get Started
-            </button>
+          <a
+            href="/pricing"
+            style={{
+              padding: "12px 16px",
+              borderRadius: 12,
+              border: "1px solid #6d28d9",
+              color: "#6d28d9",
+              textDecoration: "none",
+              fontWeight: 800,
+            }}
+          >
+            View pricing
           </a>
         </div>
-      </section>
+      </form>
+    </section>
+  );
+}
 
-      {/* Contact Form */}
-      <section
-        id="contact"
-        className="py-20 bg-[#15121e] px-6 text-white flex justify-center"
+function Footer() {
+  return (
+    <footer
+      style={{
+        borderTop: "1px solid #e5e7eb",
+        padding: "24px 16px",
+        marginTop: 24,
+        color: "#64748b",
+        fontFamily: "system-ui,Segoe UI,Arial",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1100,
+          margin: "0 auto",
+          display: "flex",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 12,
+        }}
       >
-        <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-10 w-full max-w-2xl shadow-xl transition duration-500 hover:shadow-purple-500/30 hover:scale-[1.02]">
-          <h2 className="text-3xl font-bold mb-6 text-center text-purple-400">
-            Send Us Your Resume
-          </h2>
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <input
-              type="text"
-              placeholder="Your Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2 bg-[#1f1b2e] border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 transition"
-            />
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 bg-[#1f1b2e] border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 transition"
-            />
-            <input
-              type="tel"
-              placeholder="+974 66XXXXXX"
-              value={mobile}
-              onChange={(e) => setMobile(e.target.value)}
-              className="w-full px-4 py-2 bg-[#1f1b2e] border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 transition"
-            />
-            <textarea
-              rows="4"
-              placeholder="Message (Optional)"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              className="w-full px-4 py-2 bg-[#1f1b2e] border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 transition"
-            />
-            <input
-              type="file"
-              onChange={(e) => setResumeFile(e.target.files[0])}
-              className="w-full bg-[#1f1b2e] text-white file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 transition"
-            />
-            <div className="text-center">
-              <button
-                type="submit"
-                disabled={loading}
-                className={`px-8 py-3 rounded-full font-semibold text-white transition-all duration-300 ${
-                  loading
-                    ? "bg-purple-300 cursor-not-allowed"
-                    : "bg-purple-600 hover:bg-purple-500"
-                }`}
-              >
-                {loading ? "Submitting..." : "Submit & Apply"}
-              </button>
-              {success && (
-                <p className="mt-3 text-sm text-purple-300">{success}</p>
-              )}
-            </div>
-          </form>
+        <div>© {new Date().getFullYear()} Apply4Me</div>
+        <div style={{ display: "flex", gap: 14 }}>
+          <a
+            href="/pricing"
+            style={{ color: "#475569", textDecoration: "none" }}
+          >
+            Pricing
+          </a>
+          <a href="/terms" style={{ color: "#475569", textDecoration: "none" }}>
+            Terms
+          </a>
+          <a
+            href="/privacy"
+            style={{ color: "#475569", textDecoration: "none" }}
+          >
+            Privacy
+          </a>
         </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-[#0d0b16] border-white/10 py-6 text-center text-gray-400 text-sm">
-        <p>
-          © {new Date().getFullYear()}{" "}
-          <span className="text-purple-400 font-semibold">Apply4Me</span>
-        </p>
-        <p className="mt-1">
-          Crafted With 💜 by{" "}
-          <span className="text-white font-semibold">Mr. ADAM</span>
-        </p>
-      </footer>
-    </div>
+      </div>
+    </footer>
   );
 }
