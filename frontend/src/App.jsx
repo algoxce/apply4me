@@ -1,6 +1,7 @@
 // frontend/src/App.jsx
 import React, { useState } from "react";
 import Hero from "./components/Hero.jsx";
+import Layout from "./components/Layout.jsx";
 
 export default function App() {
   return (
