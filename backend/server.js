@@ -1,8 +1,39 @@
 // backend/server.js
-const bodyParser = require("body-parser");
-const crypto = require("crypto");
+require("dotenv").config();
 
-// Raw body is required to verify HMAC
+const express = require("express");
+const cors = require("cors");
+const crypto = require("crypto");
+const multer = require("multer");
+const bodyParser = require("body-parser");
+const { PrismaClient } = require("@prisma/client");
+
+const app = express();
+const prisma = new PrismaClient();
+
+const PORT = process.env.PORT || 5000;
+const NODE_ENV = process.env.NODE_ENV || "development";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const ADMIN_MAX_LIMIT = parseInt(process.env.ADMIN_MAX_LIMIT || "100", 10);
+
+// ----- CORS -----
+const allowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin(origin, cb) {
+      const allowAll = allowedOrigins.length === 0;
+      if (!origin || allowAll || allowedOrigins.includes(origin))
+        cb(null, true);
+      else cb(new Error("Not allowed by CORS: " + origin));
+    },
+    credentials: true,
+  })
+);
+
+// ===== LEMON SQUEEZY WEBHOOK (must be BEFORE express.json) =====
 app.post(
   "/api/lemonsqueezy/webhook",
   bodyParser.raw({ type: "application/json" }),
@@ -24,14 +55,14 @@ app.post(
       const payload = JSON.parse(req.body.toString("utf8"));
       const event = payload?.meta?.event_name || payload?.event;
 
-      // Try to find buyer email
+      // buyer email
       let email =
         payload?.data?.attributes?.user_email ||
         payload?.data?.attributes?.email ||
         payload?.data?.attributes?.customer_email ||
         null;
 
-      // Product/variant name to detect which pack
+      // variant/product name
       const productName =
         payload?.data?.attributes?.first_order_item?.product_name ||
         payload?.data?.attributes?.product_name ||
@@ -41,7 +72,6 @@ app.post(
 
       if (!email) return res.json({ ok: true });
 
-      // fetch/create user (function from earlier code)
       let user = await getOrCreateUserByEmail(email);
 
       const isOrder = event === "order_created";
@@ -105,95 +135,88 @@ app.post(
       return res.json({ received: true });
     } catch (e) {
       console.error("LS webhook error:", e);
-      return res.json({ ok: true }); // avoid retry storms
+      return res.json({ ok: true }); // avoid retries storm
     }
   }
 );
 
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const multer = require("multer");
-const crypto = require("crypto");
-const { PrismaClient } = require("@prisma/client");
-
-const app = express();
-const prisma = new PrismaClient();
-
-const PORT = process.env.PORT || 5000;
-const NODE_ENV = process.env.NODE_ENV || "development";
-const ADMIN_MAX_LIMIT = parseInt(process.env.ADMIN_MAX_LIMIT || "100", 10); // cap per page
-
-// ----- CORS -----
-const allowedOrigins = (process.env.CORS_ORIGINS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-const corsOptions = {
-  origin(origin, callback) {
-    const allowAll = allowedOrigins.length === 0;
-    if (!origin || allowAll || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS: " + origin));
-    }
-  },
-  credentials: true,
-};
-app.use(cors(corsOptions));
+// ===== JSON for other routes =====
 app.use(express.json());
 
-// ----- Uploads (10MB limit) -----
+// ---- Uploads (resume) ----
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-// ----- Basic Auth middleware for admin endpoints -----
+// ===== Helpers =====
 function timingSafeEqual(a, b) {
-  const aBuf = Buffer.from(String(a));
-  const bBuf = Buffer.from(String(b));
-  const len = Math.max(aBuf.length, bBuf.length);
-  const aPad = Buffer.concat([aBuf, Buffer.alloc(len - aBuf.length)]);
-  const bPad = Buffer.concat([bBuf, Buffer.alloc(len - bBuf.length)]);
-  return crypto.timingSafeEqual(aPad, bPad);
+  const A = Buffer.from(String(a)),
+    B = Buffer.from(String(b));
+  const len = Math.max(A.length, B.length);
+  return crypto.timingSafeEqual(
+    Buffer.concat([A, Buffer.alloc(len - A.length)]),
+    Buffer.concat([B, Buffer.alloc(len - B.length)])
+  );
 }
 
-function requireAdmin(req, res, next) {
-  const user = process.env.ADMIN_USER;
-  const pass = process.env.ADMIN_PASS;
-  if (!user || !pass) {
-    res.set("Content-Type", "text/plain");
-    return res
-      .status(503)
-      .send("Admin is not configured. Set ADMIN_USER and ADMIN_PASS in .env");
-  }
+async function getOrCreateUserByEmail(email, referredByCode) {
+  email = email.trim().toLowerCase();
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (user) return user;
 
-  const header = req.headers["authorization"] || "";
-  if (!header.startsWith("Basic ")) {
-    res.set("WWW-Authenticate", 'Basic realm="Apply4Me Admin"');
-    return res.status(401).send("Authentication required");
+  let referredBy = null;
+  if (referredByCode) {
+    referredBy = await prisma.user.findUnique({
+      where: { referralCode: referredByCode },
+    });
   }
-  let decoded = "";
-  try {
-    decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
-  } catch (_) {}
-  const idx = decoded.indexOf(":");
-  const name = decoded.slice(0, idx);
-  const password = decoded.slice(idx + 1);
-
-  const ok = timingSafeEqual(name, user) && timingSafeEqual(password, pass);
-  if (!ok) {
-    res.set("WWW-Authenticate", 'Basic realm="Apply4Me Admin"');
-    return res.status(401).send("Invalid credentials");
+  user = await prisma.user.create({
+    data: {
+      email,
+      plan: "free",
+      credits: 5,
+      referredById: referredBy?.id ?? null,
+    },
+  });
+  if (referredBy) {
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: referredBy.id },
+        data: { credits: { increment: 2 } },
+      }),
+      prisma.user.update({
+        where: { id: user.id },
+        data: { credits: { increment: 2 } },
+      }),
+      prisma.referral.create({
+        data: {
+          referrerId: referredBy.id,
+          refereeId: user.id,
+          bonusCredits: 2,
+        },
+      }),
+    ]);
   }
-  return next();
+  return user;
 }
 
-// ----- Routes -----
-// Public health check
-app.get("/api/health", async (req, res) => {
+async function rolloverProIfNeeded(user) {
+  if (user.plan !== "pro") return user;
+  const now = new Date();
+  if (!user.renewAt || now >= user.renewAt) {
+    const next = new Date(now);
+    next.setMonth(now.getMonth() + 1);
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { credits: 100, renewAt: next },
+    });
+  }
+  return user;
+}
+
+// ===== Health =====
+app.get("/api/health", async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.json({
@@ -207,22 +230,63 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// Public submit (multipart/form-data)
+// ===== Users =====
+app.post("/api/user/upsert", async (req, res) => {
+  try {
+    const { email, ref } = req.body || {};
+    if (!email) return res.status(400).json({ error: "email required" });
+    let user = await getOrCreateUserByEmail(email, ref);
+    user = await rolloverProIfNeeded(user);
+    res.json({
+      email: user.email,
+      plan: user.plan,
+      credits: user.credits,
+      renewAt: user.renewAt,
+      referralCode: user.referralCode,
+    });
+  } catch {
+    res.status(500).json({ error: "server error" });
+  }
+});
+
+app.get("/api/user/status", async (req, res) => {
+  try {
+    const email = String(req.query.email || "").toLowerCase();
+    if (!email) return res.status(400).json({ error: "email required" });
+    let user = await prisma.user.findUnique({ where: { email } });
+    if (!user)
+      user = await getOrCreateUserByEmail(email, String(req.query.ref || ""));
+    user = await rolloverProIfNeeded(user);
+    res.json({
+      email: user.email,
+      plan: user.plan,
+      credits: user.credits,
+      renewAt: user.renewAt,
+      referralCode: user.referralCode,
+    });
+  } catch {
+    res.status(500).json({ error: "server error" });
+  }
+});
+
+// ===== Submissions (credits enforced) =====
 app.post("/api/submit", upload.single("resume"), async (req, res) => {
   try {
-    const { name, email, mobile, message } = req.body;
+    const { name, email, mobile, message, ref } = req.body;
     if (!name || !email)
       return res.status(400).json({ error: "Name and Email are required." });
 
-    let resumeData = null,
-      resumeContentType = null,
-      resumeOriginalName = null,
-      resumeSize = null;
-    if (req.file) {
-      resumeData = req.file.buffer;
-      resumeContentType = req.file.mimetype;
-      resumeOriginalName = req.file.originalname;
-      resumeSize = req.file.size;
+    let user = await getOrCreateUserByEmail(email, ref);
+    user = await rolloverProIfNeeded(user);
+
+    if (user.credits <= 0) {
+      return res
+        .status(402)
+        .json({
+          error: "Out of credits",
+          upgrade: true,
+          referralCode: user.referralCode,
+        });
     }
 
     const created = await prisma.submission.create({
@@ -231,34 +295,54 @@ app.post("/api/submit", upload.single("resume"), async (req, res) => {
         email,
         mobile,
         message,
-        resumeData,
-        resumeContentType,
-        resumeOriginalName,
-        resumeSize,
+        userId: user.id,
+        resumeData: req.file?.buffer || null,
+        resumeContentType: req.file?.mimetype || null,
+        resumeOriginalName: req.file?.originalname || null,
+        resumeSize: req.file?.size || null,
       },
     });
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { credits: { decrement: 1 } },
+      }),
+      prisma.usage.create({
+        data: { userId: user.id, submissionId: created.id },
+      }),
+    ]);
 
     res.json({ ok: true, id: created.id });
   } catch (err) {
     console.error("Submit error:", err);
-    res.status(500).json({
-      error: "Server error",
-      details: NODE_ENV === "development" ? err.message : undefined,
-    });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// ----- PAGINATED ADMIN JSON -----
-// GET /api/submissions?limit=50&cursor=LAST_ID
+// ===== Admin =====
+function requireAdmin(req, res, next) {
+  const u = process.env.ADMIN_USER,
+    p = process.env.ADMIN_PASS;
+  if (!u || !p) return res.status(503).send("Admin is not configured.");
+  const h = req.headers["authorization"] || "";
+  if (!h.startsWith("Basic ")) {
+    res.set("WWW-Authenticate", 'Basic realm="Apply4Me Admin"');
+    return res.status(401).send("Auth required");
+  }
+  const [name, pass] = Buffer.from(h.slice(6), "base64")
+    .toString("utf8")
+    .split(":");
+  if (timingSafeEqual(name, u) && timingSafeEqual(pass, p)) return next();
+  res.set("WWW-Authenticate", 'Basic realm="Apply4Me Admin"');
+  return res.status(401).send("Invalid credentials");
+}
+
 app.get("/api/submissions", requireAdmin, async (req, res) => {
   const take = Math.min(parseInt(req.query.limit || "20", 10), ADMIN_MAX_LIMIT);
   const cursorId = req.query.cursor ? Number(req.query.cursor) : undefined;
-  if (req.query.cursor && !Number.isFinite(cursorId)) {
-    return res.status(400).json({ error: "Invalid cursor" });
-  }
-
   const items = await prisma.submission.findMany({
-    orderBy: { id: "desc" }, // stable order
+    orderBy: { id: "desc" },
     take,
     ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
     select: {
@@ -272,17 +356,12 @@ app.get("/api/submissions", requireAdmin, async (req, res) => {
       resumeSize: true,
     },
   });
-
   const nextCursor = items.length === take ? items[items.length - 1].id : null;
   res.json({ items, nextCursor });
 });
 
-// Admin resume download (protected)
 app.get("/api/submissions/:id/resume", requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id))
-    return res.status(400).json({ error: "Invalid id" });
-
   const row = await prisma.submission.findUnique({
     where: { id },
     select: {
@@ -291,10 +370,8 @@ app.get("/api/submissions/:id/resume", requireAdmin, async (req, res) => {
       resumeOriginalName: true,
     },
   });
-
   if (!row || !row.resumeData)
     return res.status(404).json({ error: "No resume for this submission" });
-
   res.setHeader(
     "Content-Disposition",
     `attachment; filename="${encodeURIComponent(
@@ -305,121 +382,47 @@ app.get("/api/submissions/:id/resume", requireAdmin, async (req, res) => {
     "Content-Type",
     row.resumeContentType || "application/octet-stream"
   );
-  return res.send(Buffer.from(row.resumeData));
+  res.send(Buffer.from(row.resumeData));
 });
 
-// ----- Admin HTML with "Load more" (protected) -----
 app.get("/admin", requireAdmin, async (_req, res) => {
+  const rows = await prisma.submission.findMany({
+    orderBy: { id: "desc" },
+    take: 100,
+  });
+  const escape = (s) =>
+    String(s ?? "").replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[c])
+    );
+  const tr = (r) =>
+    `<tr><td>${r.id}</td><td>${escape(r.name)}</td><td>${escape(
+      r.email
+    )}</td><td>${escape(r.mobile)}</td><td>${new Date(
+      r.createdAt
+    ).toLocaleString()}</td><td>${escape(r.resumeOriginalName ?? "")}</td><td>${
+      r.resumeSize ?? ""
+    }</td><td>${
+      r.resumeOriginalName
+        ? `<a href="/api/submissions/${r.id}/resume">Download</a>`
+        : ""
+    }</td></tr>`;
   res.setHeader("Content-Type", "text/html");
-  res.send(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>Apply4Me — Submissions</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <style>
-    :root{--bg:#f8fafc;--card:#fff;--muted:#64748b;--border:#e5e7eb;--head:#f3f4f6}
-    body{font-family: ui-sans-serif,system-ui,Segoe UI,Roboto,Arial; background: var(--bg); margin:0; padding:24px;}
-    .wrap{max-width:1200px; margin:0 auto;}
-    h1{margin:0 0 16px;}
-    .card{background:var(--card); box-shadow:0 10px 30px rgba(0,0,0,.08); border-radius:12px; overflow:hidden;}
-    table{width:100%; border-collapse:collapse;}
-    th,td{padding:10px 12px; border-bottom:1px solid var(--border); font-size:14px; vertical-align:top;}
-    th{background:var(--head); text-align:left;}
-    .cap{color:var(--muted); font-size:12px; margin:6px 0 18px;}
-    .actions{display:flex; gap:8px; padding:12px; justify-content:flex-end; background:var(--head); border-bottom:1px solid var(--border);}
-    button{padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#fff; cursor:pointer;}
-    button:disabled{opacity:.5; cursor:not-allowed;}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Submissions</h1>
-    <div class="cap">Protected with HTTP Basic Auth • Paginated • Max per page: ${ADMIN_MAX_LIMIT}</div>
-    <div class="card">
-      <div class="actions">
-        <label>Page size:
-          <input id="limit" type="number" value="50" min="1" max="${ADMIN_MAX_LIMIT}" style="width:80px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">
-        </label>
-        <button id="reload">Reload</button>
-        <button id="loadMore">Load more</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th><th>Name</th><th>Email</th><th>Mobile</th><th>Created</th><th>Resume</th><th>Size</th><th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
-  </div>
-  <script>
-    const rowsEl = document.getElementById('rows');
-    const loadMoreBtn = document.getElementById('loadMore');
-    const reloadBtn = document.getElementById('reload');
-    const limitEl = document.getElementById('limit');
-
-    let nextCursor = null;
-    let loading = false;
-
-    function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',\"'\":'&#39;'}[c])); }
-
-    function tr(r){
-      const created = new Date(r.createdAt).toLocaleString();
-      const size = r.resumeSize ?? "";
-      const resume = esc(r.resumeOriginalName ?? "");
-      const dl = resume ? \`<a href="/api/submissions/\${r.id}/resume">Download</a>\` : "";
-      return \`<tr>
-        <td>\${r.id}</td>
-        <td>\${esc(r.name)}</td>
-        <td>\${esc(r.email)}</td>
-        <td>\${esc(r.mobile)}</td>
-        <td>\${created}</td>
-        <td>\${resume}</td>
-        <td>\${size}</td>
-        <td>\${dl}</td>
-      </tr>\`;
-    }
-
-    async function fetchPage({ cursor } = {}) {
-      if (loading) return;
-      loading = true;
-      loadMoreBtn.disabled = true;
-      try {
-        const limit = Math.min(Math.max(parseInt(limitEl.value||'50',10),1), ${ADMIN_MAX_LIMIT});
-        const qs = new URLSearchParams({ limit: String(limit) });
-        if (cursor) qs.set('cursor', String(cursor));
-        const res = await fetch('/api/submissions?' + qs.toString());
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const { items, nextCursor: nc } = await res.json();
-        items.forEach(item => rowsEl.insertAdjacentHTML('beforeend', tr(item)));
-        nextCursor = nc;
-        loadMoreBtn.disabled = !nextCursor;
-      } catch (e) {
-        alert('Failed to load: ' + e.message);
-      } finally {
-        loading = false;
-      }
-    }
-
-    reloadBtn.addEventListener('click', () => {
-      rowsEl.innerHTML = '';
-      nextCursor = null;
-      fetchPage({});
-    });
-    loadMoreBtn.addEventListener('click', () => {
-      if (nextCursor) fetchPage({ cursor: nextCursor });
-    });
-
-    // initial load
-    fetchPage({});
-  </script>
-</body>
-</html>`);
+  res.send(`<!doctype html><html><head><meta charset="utf-8"/><title>Apply4Me — Submissions</title>
+  <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:24px;background:#f8fafc}
+  table{width:100%;border-collapse:collapse;background:#fff}th,td{padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px}th{background:#f3f4f6}</style></head>
+  <body><h1>Submissions (latest 100)</h1><table><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Mobile</th><th>Created</th><th>Resume</th><th>Size</th><th>Action</th></tr></thead><tbody>
+  ${rows.map(tr).join("")}</tbody></table></body></html>`);
 });
 
-// === Lemon Squeezy Hosted Checkout ===
+// ===== Lemon Squeezy checkout session =====
 app.post("/api/checkout/session", async (req, res) => {
   try {
     const { email, product } = req.body || {};
@@ -431,7 +434,6 @@ app.post("/api/checkout/session", async (req, res) => {
     const base = map[product];
     if (!base) return res.status(400).json({ error: "unknown product" });
 
-    // Prefill email if possible
     const url = email
       ? `${base}?checkout[email]=${encodeURIComponent(email)}`
       : base;
@@ -442,24 +444,12 @@ app.post("/api/checkout/session", async (req, res) => {
   }
 });
 
-// ----- Error handler -----
-app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({ error: "Internal server error" });
-});
-
-// ----- Start -----
+// ===== Start =====
 app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Apply4Me running on http://localhost:${PORT} (${NODE_ENV})`);
   console.log(
-    `🚀 Apply4Me Postgres backend running on http://localhost:${PORT} (${NODE_ENV})`
+    allowedOrigins.length
+      ? "CORS allowed origins: " + JSON.stringify(allowedOrigins)
+      : "CORS allowed origins: ALL (dev)"
   );
-  if (allowedOrigins.length)
-    console.log("CORS allowed origins:", allowedOrigins);
-  else console.log("CORS allowed origins: ALL (dev)");
-});
-
-// Graceful shutdown
-process.on("SIGINT", async () => {
-  await prisma.$disconnect();
-  process.exit(0);
 });
