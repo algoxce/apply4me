@@ -1,4 +1,115 @@
 // backend/server.js
+const bodyParser = require("body-parser");
+const crypto = require("crypto");
+
+// Raw body is required to verify HMAC
+app.post(
+  "/api/lemonsqueezy/webhook",
+  bodyParser.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET || "";
+      const sig = req.header("X-Signature") || req.header("x-signature") || "";
+
+      if (secret) {
+        const hmac = crypto.createHmac("sha256", secret);
+        hmac.update(req.body);
+        const digest = `sha256=${hmac.digest("hex")}`;
+        if (digest !== sig) {
+          console.warn("LS webhook: signature mismatch");
+          return res.status(400).send("invalid signature");
+        }
+      }
+
+      const payload = JSON.parse(req.body.toString("utf8"));
+      const event = payload?.meta?.event_name || payload?.event;
+
+      // Try to find buyer email
+      let email =
+        payload?.data?.attributes?.user_email ||
+        payload?.data?.attributes?.email ||
+        payload?.data?.attributes?.customer_email ||
+        null;
+
+      // Product/variant name to detect which pack
+      const productName =
+        payload?.data?.attributes?.first_order_item?.product_name ||
+        payload?.data?.attributes?.product_name ||
+        payload?.data?.attributes?.variant_name ||
+        payload?.data?.attributes?.name ||
+        "";
+
+      if (!email) return res.json({ ok: true });
+
+      // fetch/create user (function from earlier code)
+      let user = await getOrCreateUserByEmail(email);
+
+      const isOrder = event === "order_created";
+      const isSubStart = event === "subscription_created";
+      const isSubRenew = event === "subscription_payment_success";
+
+      if (isOrder) {
+        let add = 0;
+        if (/20\s*credit/i.test(productName)) add = 20;
+        else if (/50\s*credit/i.test(productName)) add = 50;
+
+        if (add > 0) {
+          await prisma.$transaction([
+            prisma.user.update({
+              where: { id: user.id },
+              data: { credits: { increment: add } },
+            }),
+            prisma.purchase.create({
+              data: {
+                userId: user.id,
+                stripeSessionId: payload?.data?.id || `ls_${Date.now()}`,
+                type: "credits",
+                creditsGranted: add,
+                amountCents: Math.round(
+                  Number(payload?.data?.attributes?.subtotal) || 0
+                ),
+                currency: (
+                  payload?.data?.attributes?.currency || "USD"
+                ).toUpperCase(),
+              },
+            }),
+          ]);
+        }
+      }
+
+      if (isSubStart || isSubRenew) {
+        const next = new Date();
+        next.setMonth(next.getMonth() + 1);
+        await prisma.$transaction([
+          prisma.user.update({
+            where: { id: user.id },
+            data: { plan: "pro", credits: 100, renewAt: next },
+          }),
+          prisma.purchase.create({
+            data: {
+              userId: user.id,
+              stripeSessionId: payload?.data?.id || `ls_sub_${Date.now()}`,
+              type: "subscription",
+              plan: "pro",
+              amountCents: Math.round(
+                Number(payload?.data?.attributes?.subtotal) || 0
+              ),
+              currency: (
+                payload?.data?.attributes?.currency || "USD"
+              ).toUpperCase(),
+            },
+          }),
+        ]);
+      }
+
+      return res.json({ received: true });
+    } catch (e) {
+      console.error("LS webhook error:", e);
+      return res.json({ ok: true }); // avoid retry storms
+    }
+  }
+);
+
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -130,12 +241,10 @@ app.post("/api/submit", upload.single("resume"), async (req, res) => {
     res.json({ ok: true, id: created.id });
   } catch (err) {
     console.error("Submit error:", err);
-    res
-      .status(500)
-      .json({
-        error: "Server error",
-        details: NODE_ENV === "development" ? err.message : undefined,
-      });
+    res.status(500).json({
+      error: "Server error",
+      details: NODE_ENV === "development" ? err.message : undefined,
+    });
   }
 });
 
@@ -308,6 +417,29 @@ app.get("/admin", requireAdmin, async (_req, res) => {
   </script>
 </body>
 </html>`);
+});
+
+// === Lemon Squeezy Hosted Checkout ===
+app.post("/api/checkout/session", async (req, res) => {
+  try {
+    const { email, product } = req.body || {};
+    const map = {
+      credits_20: process.env.LS_URL_20,
+      credits_50: process.env.LS_URL_50,
+      pro_monthly: process.env.LS_URL_PRO,
+    };
+    const base = map[product];
+    if (!base) return res.status(400).json({ error: "unknown product" });
+
+    // Prefill email if possible
+    const url = email
+      ? `${base}?checkout[email]=${encodeURIComponent(email)}`
+      : base;
+    return res.json({ url });
+  } catch (e) {
+    console.error("LS session error:", e);
+    return res.status(500).json({ error: "server error" });
+  }
 });
 
 // ----- Error handler -----
