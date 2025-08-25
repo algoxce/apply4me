@@ -1,12 +1,7 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "https://apply4me-1.onrender.com/api/$1"
-    },
-    {
-      "source": "/((?!api/|.*\\.(?:css|js|mjs|map|png|jpg|jpeg|gif|svg|webp|mp4|webm|ico|txt|json|woff|woff2|ttf)).*)",
-      "destination": "/index.html"
-    }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "https://apply4me-1.onrender.com/api/$1" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
