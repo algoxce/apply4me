@@ -1,7 +1,4 @@
-// src/pages/Admin.jsx
 import React, { useEffect, useMemo, useState } from "react";
-
-const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, ""); // strip trailing /
 
 function b64(s) {
   if (typeof window === "undefined") return "";
@@ -59,12 +56,9 @@ export default function AdminPage() {
       });
       if (s.trim()) params.set("search", s.trim());
 
-      const res = await fetch(
-        `${API_BASE}/api/submissions?${params.toString()}`,
-        {
-          headers: { ...authHeader },
-        }
-      );
+      const res = await fetch(`/api/submissions?${params.toString()}`, {
+        headers: { ...authHeader },
+      });
 
       if (res.status === 401 || res.status === 403) {
         setErr("Unauthorized: check ADMIN_USER / ADMIN_PASS.");
@@ -91,7 +85,7 @@ export default function AdminPage() {
   async function downloadResume(id, originalName = "") {
     setErr("");
     try {
-      const res = await fetch(`${API_BASE}/api/submissions/${id}/resume`, {
+      const res = await fetch(`/api/submissions/${id}/resume`, {
         headers: { ...authHeader },
       });
       if (res.status === 404) {
@@ -142,7 +136,6 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   }
 
-  // fetch when page/search/pageSize change and we are authed (have creds)
   useEffect(() => {
     if (user && pass) fetchList(page, search, pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps

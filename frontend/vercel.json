@@ -4,9 +4,6 @@
       "source": "/api/(.*)",
       "destination": "https://apply4me-2.onrender.com/api/$1"
     },
-    {
-      "source": "/(.*)",
-      "destination": "/"
-    }
+    { "source": "/(.*)", "destination": "/" }
   ]
 }
