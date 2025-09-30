@@ -1,41 +1,29 @@
-// src/App.jsx
+// frontend/src/App.jsx
 import React from "react";
 import useBackendWarmth from "./hooks/useBackendWarmth";
 
-// ⬇️ Keep these imports pointing to your actual components
-// (rename paths if your files are in different folders)
-import Navbar from "./components/Navbar";
-import Hero from "./components/Hero";
-import Services from "./components/Services";
-import About from "./components/About";
-import ContactForm from "./components/ContactForm";
-import Footer from "./components/Footer";
+import Navbar from "./components/Navbar.jsx";
+import Hero from "./components/Hero.jsx";
+import Services from "./components/Services.jsx";
+import About from "./components/About.jsx";
+import ContactForm from "./components/ContactForm.jsx";
+import Footer from "./components/Footer.jsx";
 
 export default function App() {
-  // 🔥 Wake the backend once on first render (so submit feels instant)
+  // Wake the backend on first render (so submit feels instant even after sleep)
   useBackendWarmth();
 
   return (
     <>
-      {/* Top navigation (optional) */}
-      {typeof Navbar === "function" && <Navbar />}
-
-      {/* Hero / landing section */}
+      <Navbar />
       <main>
-        {typeof Hero === "function" && <Hero />}
-
-        {/* Your services/products */}
-        {typeof Services === "function" && <Services />}
-
-        {/* About section */}
-        {typeof About === "function" && <About />}
-
-        {/* Contact / Apply form (now has robust submit & disabled states) */}
-        {typeof ContactForm === "function" && <ContactForm />}
+        <Hero />
+        <Services />
+        <About />
+        {/* Your form at the bottom (before the footer) */}
+        <ContactForm />
       </main>
-
-      {/* Footer */}
-      {typeof Footer === "function" && <Footer />}
+      <Footer />
     </>
   );
 }
