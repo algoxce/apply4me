@@ -1,257 +1,217 @@
-import { useState } from "react";
-import { Typewriter } from "react-simple-typewriter";
+// src/App.jsx
+import React, { useEffect, useRef, useState } from "react";
 
 export default function App() {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [message, setMessage] = useState("");
-  const [resumeFile, setResumeFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState("");
+  // UI state
+  const [status, setStatus] = useState("idle"); // idle | submitting | success | error
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const handleSubmit = async (e) => {
+  // Guards
+  const inFlightRef = useRef(false);
+  const abortRef = useRef(null);
+
+  // 🔥 Warm the backend on first load (wakes Render free dyno)
+  useEffect(() => {
+    fetch("/api/health").catch(() => {});
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
+  async function handleSubmit(e) {
     e.preventDefault();
-    setLoading(true);
-    setSuccess("");
+    if (inFlightRef.current) return; // hard guard: ignore extra clicks/Enter
 
-    const formData = new FormData();
-    formData.append("name", name);
-    formData.append("email", email);
-    formData.append("mobile", mobile);
-    formData.append("message", message);
-    if (resumeFile) {
-      formData.append("resume", resumeFile);
-    }
+    inFlightRef.current = true;
+    setStatus("submitting");
+    setErrorMsg("");
+
+    const form = e.currentTarget;
+    const formData = new FormData(form);
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/submit`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      // Optional: add any client-side validation here
 
-      if (response.ok) {
-        setSuccess("✅ Submitted successfully!");
-        setName("");
-        setEmail("");
-        setMobile("");
-        setMessage("");
-        setResumeFile(null);
-      } else {
-        setSuccess("❌ Submission failed. Try again.");
-      }
-    } catch (error) {
-      console.error("Error submitting form:", error);
-      setSuccess("❌ Error submitting form.");
+      // Allow cancelation if component unmounts
+      abortRef.current = new AbortController();
+
+      const result = await submitWithRetry(formData, {
+        signal: abortRef.current.signal,
+      });
+      console.log("Submission OK:", result);
+
+      form.reset(); // ✅ clear form on success
+      setStatus("success");
+    } catch (err) {
+      console.error("Submission failed:", err);
+      // Friendlier message for timeouts / wake-ups
+      const nice = /timeout/i.test(String(err))
+        ? "The server is waking up. Please try again."
+        : String(err?.message || err);
+      setErrorMsg(nice);
+      setStatus("error");
     } finally {
-      setLoading(false);
+      inFlightRef.current = false;
+      abortRef.current = null;
+
+      // Optional: auto-clear messages after a moment
+      setTimeout(() => {
+        if (status !== "submitting") setStatus("idle");
+      }, 1800);
     }
-  };
+  }
+
+  const pending = status === "submitting";
 
   return (
-    <div className="bg-gradient-to-br from-black via-[#1f1b2e] to-[#5b21b6] min-h-screen text-white font-sans">
-      {/* Navbar */}
-      <header className="w-full px-6 py-4 flex justify-between items-center bg-white/5 backdrop-blur-md border-b border-white/10 fixed top-0 z-50">
-        <h1 className="text-xl font-bold text-purple-400">Apply4Me</h1>
-        <nav className="space-x-6 hidden sm:block">
-          {["about", "services", "contact"].map((link) => (
-            <a
-              key={link}
-              href={`#${link}`}
-              className="text-white hover:text-purple-400 transition duration-300"
-            >
-              {link.charAt(0).toUpperCase() + link.slice(1)}
-            </a>
-          ))}
-        </nav>
-      </header>
-
-      {/* Hero Section */}
-      <section className="pt-32 h-screen flex flex-col items-center justify-center text-center px-4">
-        <h1 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-6">
-          Career Boost With{" "}
-          <span className="text-purple-400 slow-blink ml-1">
-            <Typewriter
-              words={[
-                "Career-Defining Resumes",
-                "Strategic Job Applications",
-                "Elegant CVs That Win Interviews",
-                "Professional Portfolios That Impress",
-                "Tailored Career Branding",
-              ]}
-              loop={Infinity}
-              cursor
-              cursorStyle="|"
-              typeSpeed={40}
-              deleteSpeed={30}
-              delaySpeed={1500}
-            />
-          </span>
-        </h1>
-        <p className="text-lg sm:text-xl text-gray-300 max-w-xl mb-8">
-          And apply for you — professionally, smartly, and effectively. Let us
-          save your time.
+    <div className="min-h-screen flex items-start justify-center p-6">
+      <div className="w-full max-w-xl">
+        <h1 className="text-2xl font-bold mb-2">Apply4Me</h1>
+        <p className="text-sm text-gray-600 mb-6">
+          Submit your details below. We’ll get back to you shortly.
         </p>
-        <a href="#contact">
-          <button className="bg-purple-600 text-white font-semibold px-8 py-3 rounded-full shadow-md transition-all duration-500 ease-in-out transform hover:scale-105 hover:shadow-purple-500/50 hover:bg-purple-500">
-            Get Started
-          </button>
-        </a>
-      </section>
 
-      {/* Services */}
-      <section id="services" className="py-20 bg-[#0d0b16] px-6">
-        <div className="max-w-6xl mx-auto text-center">
-          <h2 className="text-4xl font-bold mb-12 text-purple-400">
-            Our Services
-          </h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: "📝",
-                title: "Resume Writing",
-                text: "We craft ATS-optimized resumes tailored for your industry.",
-              },
-              {
-                icon: "👔",
-                title: "Job Applications",
-                text: "We apply to jobs for you smartly using top job platforms.",
-              },
-              {
-                icon: "📩",
-                title: "Instant Delivery",
-                text: "Receive your resume within hours — ready to apply.",
-              },
-            ].map((service, i) => (
-              <div
-                key={i}
-                className="bg-[#1f1b2e] p-8 rounded-xl shadow-md transition-all duration-500 ease-in-out transform hover:scale-105 hover:bg-purple-700/20 hover:shadow-purple-500/30"
-              >
-                <span className="text-4xl">{service.icon}</span>
-                <h3 className="text-xl font-semibold mt-4 mb-2">
-                  {service.title}
-                </h3>
-                <p className="text-gray-300">{service.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* About */}
-      <section
-        id="about"
-        className="py-20 bg-[#15121e] px-6 flex justify-center"
-      >
-        <div className="bg-white/5 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl max-w-3xl p-10 text-center transition duration-500 hover:shadow-purple-500/30 hover:scale-[1.02]">
-          <h2 className="text-4xl font-bold mb-6 text-purple-400">
-            Why Choose Us?
-          </h2>
-          <p className="text-gray-300 text-lg leading-relaxed">
-            At <span className="text-purple-400 font-semibold">Apply4Me</span>,
-            we don't just build resumes — we help shape careers. Our team blends
-            professional writing expertise with market insights to craft modern,
-            effective CVs. We also apply for jobs on your behalf to save your
-            time and deliver results.
-          </p>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="py-20 bg-gradient-to-r from-[#1f1b2e] via-[#2a223d] to-[#3e2c5a] text-white px-6 flex justify-center">
-        <div className="backdrop-blur-md bg-white/5 border border-white/10 shadow-xl rounded-2xl max-w-3xl p-10 text-center transition-all duration-500 hover:shadow-purple-500/30 hover:scale-[1.02]">
-          <h2 className="text-4xl font-bold mb-6">
-            Ready to <span className="text-purple-400">Get Hired</span>?
-          </h2>
-          <p className="text-gray-300 mb-8 text-lg">
-            Let’s build your professional brand, craft a powerful resume, and
-            apply for jobs that match your goals.
-          </p>
-          <a href="#contact">
-            <button className="bg-purple-600 px-8 py-3 rounded-full font-semibold text-white hover:bg-purple-500 transition duration-300">
-              Let's Get Started
-            </button>
-          </a>
-        </div>
-      </section>
-
-      {/* Contact Form */}
-      <section
-        id="contact"
-        className="py-20 bg-[#15121e] px-6 text-white flex justify-center"
-      >
-        <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-10 w-full max-w-2xl shadow-xl transition duration-500 hover:shadow-purple-500/30 hover:scale-[1.02]">
-          <h2 className="text-3xl font-bold mb-6 text-center text-purple-400">
-            Send Us Your Resume
-          </h2>
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <input
-              type="text"
-              placeholder="Your Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2 bg-[#1f1b2e] border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 transition"
-            />
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 bg-[#1f1b2e] border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 transition"
-            />
-            <input
-              type="tel"
-              placeholder="+974 66XXXXXX"
-              value={mobile}
-              onChange={(e) => setMobile(e.target.value)}
-              className="w-full px-4 py-2 bg-[#1f1b2e] border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 transition"
-            />
-            <textarea
-              rows="4"
-              placeholder="Message (Optional)"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              className="w-full px-4 py-2 bg-[#1f1b2e] border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 transition"
-            />
+        <form
+          onSubmit={handleSubmit}
+          className="grid gap-3 rounded-xl border p-4"
+          onKeyDown={(ev) => {
+            if (pending && ev.key === "Enter") ev.preventDefault();
+          }}
+        >
+          <input
+            name="name"
+            placeholder="Full name"
+            className="border rounded px-3 py-2"
+            required
+            disabled={pending}
+          />
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            className="border rounded px-3 py-2"
+            required
+            disabled={pending}
+          />
+          <input
+            name="mobile"
+            placeholder="Mobile (optional)"
+            className="border rounded px-3 py-2"
+            disabled={pending}
+          />
+          <textarea
+            name="message"
+            placeholder="Message (optional)"
+            className="border rounded px-3 py-2 min-h-[96px]"
+            disabled={pending}
+          />
+          <div>
+            <label className="block text-sm mb-1">
+              Resume (PDF/DOC, optional)
+            </label>
             <input
               type="file"
-              onChange={(e) => setResumeFile(e.target.files[0])}
-              className="w-full bg-[#1f1b2e] text-white file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 transition"
+              name="resume"
+              accept=".pdf,.doc,.docx"
+              className="border rounded px-3 py-2 w-full"
+              disabled={pending}
             />
-            <div className="text-center">
-              <button
-                type="submit"
-                disabled={loading}
-                className={`px-8 py-3 rounded-full font-semibold text-white transition-all duration-300 ${
-                  loading
-                    ? "bg-purple-300 cursor-not-allowed"
-                    : "bg-purple-600 hover:bg-purple-500"
-                }`}
-              >
-                {loading ? "Submitting..." : "Submit & Apply"}
-              </button>
-              {success && (
-                <p className="mt-3 text-sm text-purple-300">{success}</p>
-              )}
-            </div>
-          </form>
-        </div>
-      </section>
+          </div>
 
-      {/* Footer */}
-      <footer className="bg-[#0d0b16] border-white/10 py-6 text-center text-gray-400 text-sm">
-        <p>
-          © {new Date().getFullYear()}{" "}
-          <span className="text-purple-400 font-semibold">Apply4Me</span>
-        </p>
-        <p className="mt-1">
-          Crafted With 💜 by{" "}
-          <span className="text-white font-semibold">Mr. ADAM</span>
-        </p>
-      </footer>
+          <SubmitButton pending={pending} />
+        </form>
+
+        {/* Status messages */}
+        {status === "submitting" && (
+          <p className="mt-3 text-gray-600">
+            Waking the server & submitting… please wait.
+          </p>
+        )}
+        {status === "success" && (
+          <p className="mt-3 text-green-600">✅ Submitted successfully!</p>
+        )}
+        {status === "error" && (
+          <p className="mt-3 text-red-600">
+            ❌ {errorMsg || "Submission failed. Please try again."}
+          </p>
+        )}
+      </div>
     </div>
   );
+}
+
+/** Accessible submit button with spinner + disabled state */
+function SubmitButton({ pending }) {
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      aria-busy={pending ? "true" : "false"}
+      className={`relative inline-flex items-center justify-center rounded-md px-4 py-2 text-white
+        ${
+          pending
+            ? "bg-purple-400 cursor-not-allowed"
+            : "bg-purple-600 hover:bg-purple-700"
+        }
+        transition`}
+    >
+      {pending && (
+        <span className="absolute left-3 inline-block animate-spin">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+            />
+          </svg>
+        </span>
+      )}
+      <span className={pending ? "opacity-70 pl-6" : ""}>
+        {pending ? "Please wait…" : "Submit"}
+      </span>
+    </button>
+  );
+}
+
+/** Submit helper with timeout + retries (handles Render cold starts) */
+async function submitWithRetry(formData, { signal } = {}) {
+  const withTimeout = (p, ms = 40000) =>
+    Promise.race([
+      p,
+      new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms)),
+    ]);
+
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await withTimeout(
+        fetch("/api/submit", { method: "POST", body: formData, signal }),
+        40000
+      );
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`Server error ${res.status}: ${txt}`);
+      }
+      return await res.json(); // ✅ success
+    } catch (e) {
+      lastErr = e;
+      if (e.name === "AbortError") throw e; // stop if user navigated away
+      // backoff: 1.5s, 3s, 4.5s
+      await new Promise((r) => setTimeout(r, attempt * 1500));
+    }
+  }
+  throw lastErr;
 }
