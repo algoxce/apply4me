@@ -4,6 +4,10 @@
       "source": "/api/(.*)",
       "destination": "https://apply4me-2.onrender.com/api/$1"
     },
+    {
+      "source": "/health",
+      "destination": "https://apply4me-2.onrender.com/health"
+    },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
